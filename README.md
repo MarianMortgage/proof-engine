@@ -83,7 +83,15 @@ for name, loan in designs.items():
     print(f"{name:40s} cost of the feature: {spread - standard_spread:.3f} points")
 ```
 
-`examples/quickstart.ipynb` runs the same comparison and adds the borrower-cost lens for each design.
+## Examples
+
+Runnable scripts in `examples/`, all using arbitrary example inputs (illustrative, not Marian terms or anyone else's):
+
+- `compare_designs.py`: the cost of the down-only feature for each example design (pricing lens).
+- `borrower_outcomes.py`: the range of outcomes for one borrower under each design, against a standard loan with refinancing (borrower-cost lens).
+- `monitoring_and_lag.py`: how monitoring frequency and a notice lag change the cost of one design.
+
+Run one with `uv run python examples/compare_designs.py`. `examples/quickstart.ipynb` walks through the same comparisons in a notebook.
 
 ## Methodology
 
