@@ -1,7 +1,7 @@
 [project]
 name = "proof-engine"
-version = "0.2.0"
-description = "One-factor Monte Carlo comparison of a down-only (ratchet) mortgage with a standard fixed-rate mortgage under modeled refinancing behavior."
+version = "0.3.0"
+description = "Monte Carlo comparison of down-only mortgage designs with a standard fixed-rate mortgage under modeled refinancing behavior."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

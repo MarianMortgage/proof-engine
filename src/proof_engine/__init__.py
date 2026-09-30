@@ -1,10 +1,15 @@
-"""proof-engine: compare a down-only mortgage with a standard fixed-rate mortgage by Monte Carlo.
+"""proof-engine: compare down-only mortgage designs with a standard fixed-rate mortgage by Monte Carlo.
 
-All product, market and behavioral parameters are required inputs. See README.md for the model and its limits.
+Core product, market and behavioral parameters are required inputs; optional design features are off
+unless set. See README.md for the model and its limits.
 """
 
 from .model import (
+    BORROWER_TYPES,
+    BorrowerBehavior,
     DownOnlyLoan,
+    FixedFloor,
+    FloorBelowStart,
     HullWhiteMarket,
     MarketPaths,
     PrepaymentModel,
@@ -16,11 +21,16 @@ from .model import (
     par_spread_standard,
     price_down_only,
     price_standard,
+    select_behavior,
     simulate,
 )
 
 __all__ = [
+    "BORROWER_TYPES",
+    "BorrowerBehavior",
     "DownOnlyLoan",
+    "FixedFloor",
+    "FloorBelowStart",
     "HullWhiteMarket",
     "MarketPaths",
     "PrepaymentModel",
@@ -32,6 +42,7 @@ __all__ = [
     "par_spread_standard",
     "price_down_only",
     "price_standard",
+    "select_behavior",
     "simulate",
 ]
-__version__ = "0.2.0"
+__version__ = "0.3.0"
