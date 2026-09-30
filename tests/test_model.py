@@ -363,7 +363,7 @@ def test_borrower_type_only_selects_the_supplied_inputs():
     [
         lambda: HullWhiteMarket(3.7, 0.0, 1.3, 10),
         lambda: HullWhiteMarket(3.7, 0.11, -1.0, 10),
-        lambda: FixedFloor(-1.0),
+        lambda: FixedFloor(-0.25),
         lambda: FloorBelowStart(0.0),
         lambda: DownOnlyLoan(1.6, triggers=(), check_every_days=1),
         lambda: DownOnlyLoan(1.6, triggers=(0.35, 0.0), check_every_days=1),
