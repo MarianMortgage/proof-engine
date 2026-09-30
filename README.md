@@ -1,5 +1,7 @@
 # proof-engine
 
+[![tests](https://github.com/MarianMortgage/proof-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/MarianMortgage/proof-engine/actions/workflows/tests.yml)
+
 A small, open Python package that compares, by Monte Carlo simulation:
 
 - **down-only mortgages**, whose rate resets lower when a market rate index falls far enough and never goes up, across a broad family of designs; and
@@ -158,6 +160,8 @@ If you use this package to answer a question about a specific mortgage product:
 uv sync
 uv run pytest
 ```
+
+The tests also run on every push, on Python 3.10 and 3.13 (`.github/workflows/tests.yml`).
 
 ## License
 
