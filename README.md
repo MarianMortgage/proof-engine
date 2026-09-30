@@ -85,16 +85,46 @@ for name, loan in designs.items():
 
 `examples/quickstart.ipynb` runs the same comparison and adds the borrower-cost lens for each design.
 
-## The model
+## Methodology
 
-**Rates.** A one-factor Hull–White short-rate model fitted to a flat initial forward curve, simulated with an exact discretization on a grid of `days_per_month` steps per month, with optional antithetic sampling. The main index is the model-implied zero-coupon yield at `index_tenor_years`, computed in closed form on each path; `series_tenors` adds yields at other maturities as named series. You can also build `MarketPaths` from your own scenarios and add any series with `with_series`.
+### Interest-rate paths
 
-**Down-only loan.** Starts at `index + rate_spread`, where the index is the series the loan follows (optionally averaged). Every `check_every_days` steps it compares its rate with a candidate, `index + rate_spread` (or the floor, if higher). It resets when the candidate is at least the current tier's threshold below the current rate, subject to any reset limit, spacing and notice lag. The rate never rises. Interest accrues at the rate in effect each day; payments are monthly.
+Rates follow a one-factor Hull–White model,
 
-**Two lenses.**
+    dr = (θ(t) − a·r) dt + σ dW,
 
-- *Pricing.* The value per 1 of par of a loan's monthly cash flows, net of `coupon_strip`, discounted along each short-rate path plus `oas`. The standard loan prepays at an S-curve refinancing speed, a logistic function of its refinancing incentive (`refi_max_cpr`, `refi_midpoint`, `refi_width`), plus `turnover_cpr`, up to `max_total_cpr`. The down-only loan prepays at `turnover_cpr` only, and pays any prepayment penalty on those prepayments. `par_spread_standard` solves the standard loan's spread for par, with its incentive measured against new loans at that same spread. `par_spread_down_only` solves the down-only loan's spread for par, with resets going to the index plus that spread, so the premium is carried through every reset. When both follow the same index, the difference between the two is the cost of the design's down-only feature.
-- *Borrower cost.* `simulate` gives the present value, at `discount_rate`, of what one borrower pays under each loan on each path: payments, transaction costs for any refinance, any prepayment penalty on a sale, and the balance repaid at the horizon or an earlier sale. The standard loan's borrower follows a `RefinancePolicy` (threshold, delay, efficiency, chance of qualifying again, transaction costs). `fair_rate_spread` finds the down-only spread at which the two loans' expected costs are equal.
+with `a = mean_reversion` and `σ = volatility`, and `θ(t)` chosen so the model reproduces a flat initial forward curve at `flat_rate`. The short rate is simulated with an exact discretization of its Ornstein–Uhlenbeck part on a grid of `days_per_month` steps per month, so the rate paths have no time-step error. Antithetic sampling (`antithetic=True`) pairs each path with its mirror image to reduce noise.
+
+Mortgage rates follow a longer-term rate. The main index is the model-implied zero-coupon yield at `index_tenor_years`, computed in closed form on every path and every day. `series_tenors` adds yields at other maturities as named series, and `MarketPaths.with_series` adds any series you simulate or load yourself. A loan's rate is the series it follows plus its spread. Discounting in the pricing lens uses the short rate along each path.
+
+### Reset rules, floors and monitoring
+
+A `DownOnlyLoan` starts at the followed index plus `rate_spread`. On each monitoring day (every `check_every_days` grid steps after the start) it computes a candidate rate, the followed index plus the same spread, raised to the floor if there is one, and resets to the candidate when all of these hold:
+
+- the candidate is at least the current tier's threshold below the current rate: `triggers[0]` for the first reset, `triggers[1]` for the second, and the last threshold for every later reset;
+- the loan has had fewer than `max_resets` resets, if set;
+- at least `min_days_between_resets` days have passed since the last reset took effect, if set;
+- no earlier reset is still waiting to take effect.
+
+With `notice_lag_days`, a reset triggered on one day takes effect that many days later, at the rate set on the trigger day. With `index_average_days`, the loan follows a trailing average of the series over that many days, including the current day (fewer at the start of the loan), instead of its daily value.
+
+The floor is either `FixedFloor(level)` or `FloorBelowStart(points)`, which sits a set amount below the loan's own starting rate. When the index falls far enough that the candidate is the floor, the loan resets to the floor if that is still a full trigger below its current rate, and otherwise does not reset. The rate never rises. Interest accrues at the rate in effect on each day; the payment is recalculated monthly from the balance, the rate at the start of the month and the remaining term.
+
+### How refinancing behavior is compared
+
+The standard loan is a fixed-rate mortgage at the main index plus its spread. It is compared with the down-only loan on the same rate paths in two ways.
+
+- **Pricing lens.** Each loan's monthly cash flows, net of `coupon_strip`, are discounted along each short-rate path plus `oas` and averaged across paths, per 1 of par. The standard loan prepays at a speed set by `PrepaymentModel`: `turnover_cpr` plus an S-curve in the refinancing incentive (its rate minus the rate on a new standard loan), `refi_max_cpr / (1 + exp(−(incentive − refi_midpoint) / refi_width))`, capped at `max_total_cpr`. The down-only loan prepays at `turnover_cpr` only, because its borrower gets rate drops without refinancing, and pays any `prepayment_penalty` on those prepayments. `par_spread_standard` and `par_spread_down_only` solve each loan's spread for a value of par. The standard loan's incentive is measured against new loans at the solved spread, and the down-only loan resets to the index plus its solved spread, so both are self-consistent.
+- **Borrower-cost lens.** `simulate` follows one borrower under each loan on each path and discounts what they pay at `discount_rate`: payments, refinancing costs, any prepayment penalty on a sale, and the balance repaid at a sale or at the horizon. The standard-loan borrower refinances, checked monthly, when their rate exceeds the new-loan rate by `threshold` for more than `delay_months` months and two random draws succeed: acting on the opportunity (`monthly_probability`) and qualifying again (`requalify_probability`). Each refinance costs `closing_costs` times the balance plus `fixed_costs`, and restarts the term. A sale ends both loans on the same path in the same month, drawn from `annual_turnover`. Behavioral draws come from `seed`, so comparisons between designs use common random numbers. `fair_rate_spread` finds the down-only spread at which the two loans' expected costs are equal.
+
+`BorrowerBehavior` groups the behavioral inputs for one borrower type, and `select_behavior` picks the one you supplied for `"owner_occupant"` or `"investor"`. The package has no built-in behavior for either.
+
+### What the outputs mean, and what they don't
+
+- `par_spread_down_only(...) − par_spread_standard(...)` is the model's cost of a design's down-only feature, in points of rate, when both loans follow the same index: how much higher the down-only loan's rate must be for a holder to value it the same as a standard loan, under your market and prepayment inputs.
+- `simulate(...).summary()` is the distribution, across paths, of how much less (positive) or more (negative) one borrower pays with the down-only loan, in present value. The mean hides a range; paths where the down-only loan costs more are part of the answer.
+- `fair_rate_spread(...)` is the down-only spread at which that borrower breaks even on average against the standard loan and refinancing behavior you chose.
+- Outputs are model estimates for hypothetical loans. They are not any lender's rates, prices, terms or offer, and not a forecast of rates. They are only as good as the inputs: volatility, mean reversion, prepayment and refinancing behavior drive the results, so test a range of values rather than relying on one set.
 
 Both solvers work for every design.
 
