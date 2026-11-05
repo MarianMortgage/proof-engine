@@ -470,8 +470,11 @@ def _discount_factors(paths: MarketPaths, oas: float, term_months: int) -> np.nd
 
 
 def price_standard(paths: MarketPaths, *, rate_spread: float, term_months: int, coupon_strip: float, oas: float,
-                   prepayment: PrepaymentModel) -> float:
-    """Value per 1 of par of a standard loan's cash flows, net of ``coupon_strip``, at ``oas``."""
+                   prepayment: PrepaymentModel, per_path: bool = False) -> float | np.ndarray:
+    """Value per 1 of par of a standard loan's cash flows, net of ``coupon_strip``, at ``oas``.
+
+    With ``per_path=True``, returns each path's value (for standard errors) instead of the mean.
+    """
     _require(term_months <= paths.months, "paths must cover term_months")
     df = _discount_factors(paths, oas, term_months)
     rate = paths.index[:, 0] + rate_spread
@@ -486,12 +489,12 @@ def price_standard(paths: MarketPaths, *, rate_spread: float, term_months: int, 
         prep = (bal - sched) * _smm(cpr)
         pv += (bal * (rate - coupon_strip) / 1200 + sched + prep) * df[:, i]
         bal = bal - sched - prep
-    return float(pv.mean())
+    return pv if per_path else float(pv.mean())
 
 
 def price_down_only(paths: MarketPaths, *, loan: DownOnlyLoan, term_months: int, coupon_strip: float, oas: float,
                     turnover_cpr: float | None = None, prepayment: PrepaymentModel | None = None,
-                    refi_market_spread: float | None = None) -> float:
+                    refi_market_spread: float | None = None, per_path: bool = False) -> float | np.ndarray:
     """Value per 1 of par of a down-only loan's cash flows, net of ``coupon_strip``, at ``oas``.
 
     Give exactly one of:
@@ -503,7 +506,7 @@ def price_down_only(paths: MarketPaths, *, loan: DownOnlyLoan, term_months: int,
       exactly as a standard loan does, so a comparison with ``price_standard`` is like-for-like.
 
     Interest accrues at the rate in effect on each day of the month. Any prepayment penalty is paid on
-    prepayments.
+    prepayments. With ``per_path=True``, returns each path's value (for standard errors) instead of the mean.
     """
     _require(term_months <= paths.months, "paths must cover term_months")
     _require((turnover_cpr is None) != (prepayment is None), "give exactly one of turnover_cpr or prepayment")
@@ -530,7 +533,7 @@ def price_down_only(paths: MarketPaths, *, loan: DownOnlyLoan, term_months: int,
         penalty = prep * loan.penalty_fraction(i)
         pv += (bal * np.maximum(avg_rate - coupon_strip, 0) / 1200 + sched + prep + penalty) * df[:, i]
         bal = bal - sched - prep
-    return float(pv.mean())
+    return pv if per_path else float(pv.mean())
 
 
 def _bisect_to_par(value: Callable[[float], float], lo: float, hi: float, tol: float) -> float:

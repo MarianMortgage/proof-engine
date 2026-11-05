@@ -334,6 +334,16 @@ def test_like_for_like_feature_is_free_in_a_calm_market():
     assert down - std == pytest.approx(0.0, abs=0.025)
 
 
+def test_per_path_values_average_to_the_price():
+    kw = dict(term_months=120, coupon_strip=0.55, oas=0.4)
+    v = price_standard(PATHS, rate_spread=1.6, prepayment=PREPAY, **kw)
+    vp = price_standard(PATHS, rate_spread=1.6, prepayment=PREPAY, per_path=True, **kw)
+    assert vp.shape == (PATHS.paths,) and vp.mean() == pytest.approx(v)
+    d = price_down_only(PATHS, loan=DOWN, prepayment=PREPAY, refi_market_spread=1.6, **kw)
+    dp = price_down_only(PATHS, loan=DOWN, prepayment=PREPAY, refi_market_spread=1.6, per_path=True, **kw)
+    assert dp.shape == (PATHS.paths,) and dp.mean() == pytest.approx(d)
+
+
 def test_turnover_and_prepayment_are_exclusive():
     kw = dict(loan=DOWN, term_months=120, coupon_strip=0.55, oas=0.4)
     with pytest.raises(ValueError):
