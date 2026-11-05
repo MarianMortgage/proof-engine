@@ -36,6 +36,7 @@ A `DownOnlyLoan` has three required inputs and several optional features, which 
 | `max_resets` | no | The most resets the loan can have. |
 | `min_days_between_resets` | no | The fewest days after a reset before another can be triggered. |
 | `notice_lag_days` | no | Days between a reset being triggered and taking effect. |
+| `initial_fixed_months` | no | No reset can be triggered during the first this many months of the loan. Default: 0. |
 | `index_series` | no | Label of the rate series the loan follows, for example `"2y"` from `simulate(series_tenors={"2y": 2})`, or any series you add with `MarketPaths.with_series`. Default: the main index. |
 | `index_average_days` | no | Follow a trailing average of the series over this many days instead of its daily value. |
 | `prepayment_penalty` | no | Percentage of the amount prepaid, by loan year: `(3.0, 2.0, 1.0)` is 3% in year 1, 2% in year 2, 1% in year 3. Applies to voluntary prepayments. Default: none. |
@@ -115,6 +116,7 @@ A `DownOnlyLoan` starts at the followed index plus `rate_spread`. On each monito
 - the loan has had fewer than `max_resets` resets, if set;
 - at least `min_days_between_resets` days have passed since the last reset took effect, if set;
 - no earlier reset is still waiting to take effect.
+- the loan is past its initial fixed period (`initial_fixed_months`), if set.
 
 With `notice_lag_days`, a reset triggered on one day takes effect that many days later, at the rate set on the trigger day. With `index_average_days`, the loan follows a trailing average of the series over that many days, including the current day (fewer at the start of the loan), instead of its daily value.
 

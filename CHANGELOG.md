@@ -2,6 +2,10 @@
 
 All notable changes to proof-engine. Versions follow [Semantic Versioning](https://semver.org/); before 1.0, a minor version can change the API.
 
+## 0.4.0 (2026-11-05)
+
+- **Initial fixed period.** `DownOnlyLoan(initial_fixed_months=...)`: no reset can be triggered during the first months of the loan. Optional; the default of 0 keeps existing designs unchanged.
+
 ## 0.3.0 (2026-09-30)
 
 First public release.

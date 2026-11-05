@@ -224,6 +224,8 @@ class DownOnlyLoan:
       ``None`` follows ``MarketPaths.index``.
     * ``index_average_days``: follow the trailing average of the series over this many days, including
       the current day (fewer at the start of the loan), instead of its daily value.
+    * ``initial_fixed_months``: no reset can be triggered during the first this many months of the loan,
+      counted in grid months (``days_per_month`` steps each).
     * ``prepayment_penalty``: penalty as a percentage of the amount prepaid, by loan year
       (``(3.0, 2.0)`` is 3% in year 1, 2% in year 2, none after). Applied to voluntary prepayments:
       turnover in the pricing lens, and sales before the horizon in the borrower-cost lens. Empty means
@@ -242,6 +244,7 @@ class DownOnlyLoan:
     index_series: str | None = None
     index_average_days: int | None = None
     prepayment_penalty: Sequence[float] = ()
+    initial_fixed_months: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "triggers", tuple(float(x) for x in np.atleast_1d(self.triggers)))
@@ -255,6 +258,7 @@ class DownOnlyLoan:
         _require(self.min_days_between_resets is None or self.min_days_between_resets >= 1,
                  "min_days_between_resets must be None or >= 1")
         _require(self.notice_lag_days >= 0, "notice_lag_days must be >= 0")
+        _require(self.initial_fixed_months >= 0, "initial_fixed_months must be >= 0")
         _require(self.index_series is None or bool(self.index_series), "index_series must be None or a label")
         _require(self.index_average_days is None or self.index_average_days >= 1, "index_average_days must be None or >= 1")
         _require(all(0 <= p < 100 for p in self.prepayment_penalty), "prepayment penalties must be in [0, 100)")
@@ -410,6 +414,7 @@ class _DownOnlyState:
         self.pending = np.full(n, np.nan)
         self.pending_day = np.zeros(n, dtype=int)
         self.last_reset_day = np.full(n, np.iinfo(np.int64).min // 2)
+        self.first_check_day = loan.initial_fixed_months * paths.days_per_month
 
     def _apply(self, mask: np.ndarray, new_rate: np.ndarray, day: int) -> None:
         self.rate = np.where(mask, new_rate, self.rate)
@@ -430,7 +435,7 @@ class _DownOnlyState:
                     self._apply(due, self.pending, d)
                     self.pending = np.where(due, np.nan, self.pending)
                     changed |= due
-            if d > 0 and d % loan.check_every_days == 0:
+            if d > 0 and d >= self.first_check_day and d % loan.check_every_days == 0:
                 candidate = self.followed[:, d] + loan.rate_spread
                 if self.floor is not None:
                     candidate = np.maximum(candidate, self.floor)

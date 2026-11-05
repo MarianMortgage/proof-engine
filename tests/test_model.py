@@ -43,6 +43,7 @@ DESIGNS = {
                                                           floor=FloorBelowStart(1.8), prepayment_penalty=(3.0, 2.0, 1.0)),
     "averaged index, notice lag, spacing": DownOnlyLoan(1.6, triggers=(0.4,), check_every_days=5, index_average_days=20,
                                                         notice_lag_days=10, min_days_between_resets=60),
+    "initial fixed period": DownOnlyLoan(1.6, triggers=(0.55,), check_every_days=1, initial_fixed_months=30),
 }
 
 
@@ -170,6 +171,27 @@ def test_min_days_between_resets():
     spaced = run(p, DownOnlyLoan(1.6, triggers=(0.4,), check_every_days=1, min_days_between_resets=9), 3)
     later = run(p, DownOnlyLoan(1.6, triggers=(0.4,), check_every_days=1, min_days_between_resets=9), 5)
     assert free.resets[0] == 2 and spaced.resets[0] == 1 and later.resets[0] == 2
+
+
+def test_initial_fixed_period_blocks_early_resets():
+    # The index drops on day 3 (month 2). With a 3-month fixed period, no reset can trigger before day 9.
+    days = [3.0] * 3 + [2.5] * 40
+    p = manual_paths(days, months=12)
+    free = run(p, DownOnlyLoan(1.6, triggers=(0.4,), check_every_days=1), 2)
+    fixed_early = run(p, DownOnlyLoan(1.6, triggers=(0.4,), check_every_days=1, initial_fixed_months=3), 3)
+    fixed_later = run(p, DownOnlyLoan(1.6, triggers=(0.4,), check_every_days=1, initial_fixed_months=3), 4)
+    assert free.resets[0] == 1
+    assert fixed_early.resets[0] == 0
+    assert fixed_later.resets[0] == 1
+    np.testing.assert_allclose(fixed_later.rates_down_only[0, 3], 4.6)  # still the starting rate after month 3
+    np.testing.assert_allclose(fixed_later.rates_down_only[0, 4], 4.1)  # reset during month 4
+
+
+def test_longer_fixed_periods_cost_less():
+    kw = dict(term_months=120, coupon_strip=0.55, oas=0.4, turnover_cpr=0.08, search=(-2, 6))
+    none = par_spread_down_only(PATHS, loan=DownOnlyLoan(1.6, triggers=(0.55,), check_every_days=1), **kw)
+    long = par_spread_down_only(PATHS, loan=DownOnlyLoan(1.6, triggers=(0.55,), check_every_days=1, initial_fixed_months=30), **kw)
+    assert long < none
 
 
 def test_notice_lag_delays_the_effective_date():
@@ -372,6 +394,7 @@ def test_borrower_type_only_selects_the_supplied_inputs():
         lambda: DownOnlyLoan(1.6, triggers=(0.35,), check_every_days=1, max_resets=0),
         lambda: DownOnlyLoan(1.6, triggers=(0.35,), check_every_days=1, min_days_between_resets=0),
         lambda: DownOnlyLoan(1.6, triggers=(0.35,), check_every_days=1, notice_lag_days=-1),
+        lambda: DownOnlyLoan(1.6, triggers=(0.35,), check_every_days=1, initial_fixed_months=-1),
         lambda: DownOnlyLoan(1.6, triggers=(0.35,), check_every_days=1, index_average_days=0),
         lambda: DownOnlyLoan(1.6, triggers=(0.35,), check_every_days=1, prepayment_penalty=(-1.0,)),
         lambda: PrepaymentModel(0.08, 1.2, 0.9, 0.28, 0.9),
