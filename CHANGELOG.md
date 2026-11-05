@@ -4,6 +4,7 @@ All notable changes to proof-engine. Versions follow [Semantic Versioning](https
 
 ## 0.4.0 (2026-11-05)
 
+- **Like-for-like refinance right.** Optional `prepayment` / `refi_market_spread` on `price_down_only` and `par_spread_down_only`, and `down_only_refinance` on `simulate` and `fair_rate_spread`, give the down-only borrower the same ordinary refinance right as the standard borrower, including refinancing below a floor. Off by default, so existing results are unchanged.
 - **Initial fixed period.** `DownOnlyLoan(initial_fixed_months=...)`: no reset can be triggered during the first months of the loan. Optional; the default of 0 keeps existing designs unchanged.
 
 ## 0.3.0 (2026-09-30)

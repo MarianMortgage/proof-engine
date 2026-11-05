@@ -317,7 +317,47 @@ def test_more_generous_designs_cost_more():
     assert unfloored > limited and unfloored > floored
 
 
+@pytest.mark.parametrize("name", sorted(DESIGNS))
+def test_like_for_like_refinance_right_never_makes_the_feature_negative(name):
+    # With the same refinance right on both loans, resets can only add value for the borrower.
+    loan = DESIGNS[name]
+    kw = dict(term_months=120, coupon_strip=0.55, oas=0.4, search=(-2, 6))
+    std = par_spread_standard(PATHS, prepayment=PREPAY, **kw)
+    down = par_spread_down_only(PATHS, loan=loan, prepayment=PREPAY, refi_market_spread=std, **kw)
+    assert down - std > -0.01
+
+
+def test_like_for_like_feature_is_free_in_a_calm_market():
+    kw = dict(term_months=120, coupon_strip=0.55, oas=0.4, search=(-2, 6))
+    std = par_spread_standard(FLAT, prepayment=PREPAY, **kw)
+    down = par_spread_down_only(FLAT, loan=DOWN, prepayment=PREPAY, refi_market_spread=std, **kw)
+    assert down - std == pytest.approx(0.0, abs=0.025)
+
+
+def test_turnover_and_prepayment_are_exclusive():
+    kw = dict(loan=DOWN, term_months=120, coupon_strip=0.55, oas=0.4)
+    with pytest.raises(ValueError):
+        price_down_only(PATHS, turnover_cpr=0.08, prepayment=PREPAY, refi_market_spread=1.6, **kw)
+    with pytest.raises(ValueError):
+        price_down_only(PATHS, prepayment=PREPAY, **kw)
+
+
 # ---- Borrower-cost lens -----------------------------------------------------------------------------
+
+
+def test_down_only_borrower_can_refinance_below_the_floor():
+    # Rate 4.6, fixed floor 4.4: the index collapses, resets stop at the floor, a refinance goes lower.
+    p = manual_paths([3.0] * 3 + [0.5] * 40, months=12)
+    loan = DownOnlyLoan(1.6, triggers=(0.1,), check_every_days=1, floor=FixedFloor(4.4))
+    eager = StandardLoan(1.6, RefinancePolicy(0.5, 0, 1.0, 1.0, 0.01))
+    stay = run(p, loan, 12, standard=eager)
+    move = run(p, loan, 12, standard=eager, down_only_refinance=True)
+    assert stay.refinances_down_only is None
+    assert move.refinances_down_only[0] == 1
+    assert move.rates_down_only[0, -1] < 4.4
+    np.testing.assert_allclose(move.cost_standard, stay.cost_standard)  # standard side unchanged
+
+
 
 
 def test_never_refinance_policy_never_refinances():

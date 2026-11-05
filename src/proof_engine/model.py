@@ -490,27 +490,43 @@ def price_standard(paths: MarketPaths, *, rate_spread: float, term_months: int, 
 
 
 def price_down_only(paths: MarketPaths, *, loan: DownOnlyLoan, term_months: int, coupon_strip: float, oas: float,
-                    turnover_cpr: float) -> float:
+                    turnover_cpr: float | None = None, prepayment: PrepaymentModel | None = None,
+                    refi_market_spread: float | None = None) -> float:
     """Value per 1 of par of a down-only loan's cash flows, net of ``coupon_strip``, at ``oas``.
 
-    The loan prepays only through ``turnover_cpr``: a borrower whose rate already drops has no rate
-    reason to refinance. Interest accrues at the rate in effect on each day of the month. Any
-    prepayment penalty is paid on those prepayments.
+    Give exactly one of:
+
+    * ``turnover_cpr``: the loan prepays only through turnover (sales), with no refinancing; or
+    * ``prepayment`` with ``refi_market_spread``: the borrower keeps the ordinary right to refinance into
+      a standard fixed-rate loan at ``index + refi_market_spread``. The loan then prepays through
+      ``prepayment`` (turnover plus the S-curve) with the incentive measured against that market rate,
+      exactly as a standard loan does, so a comparison with ``price_standard`` is like-for-like.
+
+    Interest accrues at the rate in effect on each day of the month. Any prepayment penalty is paid on
+    prepayments.
     """
     _require(term_months <= paths.months, "paths must cover term_months")
-    _require(0 <= turnover_cpr < 1, "turnover_cpr must be in [0, 1)")
+    _require((turnover_cpr is None) != (prepayment is None), "give exactly one of turnover_cpr or prepayment")
+    if prepayment is None:
+        _require(0 <= turnover_cpr < 1, "turnover_cpr must be in [0, 1)")
+    else:
+        _require(refi_market_spread is not None, "prepayment needs refi_market_spread")
     df = _discount_factors(paths, oas, term_months)
     state = _DownOnlyState(loan, paths)
     active = np.ones(paths.paths, dtype=bool)
     bal = np.ones(paths.paths)
     pv = np.zeros(paths.paths)
-    smm = _smm(turnover_cpr)
+    smm = _smm(turnover_cpr) if prepayment is None else None
     for i in range(term_months):
         start_rate, avg_rate, _ = state.month(i, active)
         pmt = _payment(bal, start_rate, term_months - i)
         interest = bal * avg_rate / 1200
         sched = np.minimum(pmt - interest, bal)
-        prep = (bal - sched) * smm
+        if prepayment is not None:
+            market = paths.index[:, paths.month_start(i)] + refi_market_spread
+            prep = (bal - sched) * _smm(prepayment.cpr(start_rate - market))
+        else:
+            prep = (bal - sched) * smm
         penalty = prep * loan.penalty_fraction(i)
         pv += (bal * np.maximum(avg_rate - coupon_strip, 0) / 1200 + sched + prep + penalty) * df[:, i]
         bal = bal - sched - prep
@@ -544,17 +560,22 @@ def par_spread_standard(paths: MarketPaths, *, term_months: int, coupon_strip: f
 
 
 def par_spread_down_only(paths: MarketPaths, *, loan: DownOnlyLoan, term_months: int, coupon_strip: float, oas: float,
-                         turnover_cpr: float, search: tuple[float, float], tol: float = 1e-4) -> float:
+                         search: tuple[float, float], turnover_cpr: float | None = None,
+                         prepayment: PrepaymentModel | None = None, refi_market_spread: float | None = None,
+                         tol: float = 1e-4) -> float:
     """The down-only loan's spread over the series it follows at which it prices at par.
 
     ``loan.rate_spread`` is ignored. The loan starts at, and resets to, that series plus the spread
     (floored), so the premium over the standard par spread is carried into every reset. When the loan
     follows ``MarketPaths.index``, the cost of the feature is this spread minus ``par_spread_standard``.
+    Prepayment works as in ``price_down_only``: with ``prepayment`` and ``refi_market_spread`` the
+    borrower keeps the ordinary refinance right, for a like-for-like comparison with the standard loan.
     """
     lo = max(search[0], loan.min_spread(paths))
     return _bisect_to_par(
         lambda s: price_down_only(paths, loan=loan.with_spread(s), term_months=term_months, coupon_strip=coupon_strip,
-                                  oas=oas, turnover_cpr=turnover_cpr),
+                                  oas=oas, turnover_cpr=turnover_cpr, prepayment=prepayment,
+                                  refi_market_spread=refi_market_spread),
         lo, search[1], tol)
 
 
@@ -573,6 +594,8 @@ class SimulationResult:
     #: Month-start rate histories, shape (paths, months + 1), when ``simulate(record_rates=True)``.
     rates_down_only: np.ndarray | None = None
     rates_standard: np.ndarray | None = None
+    #: Per-path refinances by the down-only borrower, when ``simulate(down_only_refinance=True)``.
+    refinances_down_only: np.ndarray | None = None
 
     @property
     def paths(self) -> int:
@@ -604,13 +627,19 @@ class SimulationResult:
 
 def simulate(paths: MarketPaths, *, balance: float, term_years: int, horizon_years: float, down_only: DownOnlyLoan,
              standard: StandardLoan, discount_rate: float, annual_turnover: float, seed: int | None,
-             record_rates: bool = False) -> SimulationResult:
+             record_rates: bool = False, down_only_refinance: bool = False) -> SimulationResult:
     """Borrower-cost lens: present value of what one borrower pays under each loan, on each path.
 
     Cost is scheduled payments, refinancing transaction costs, any prepayment penalty on a sale, and the
     balance repaid at the horizon or an earlier sale, discounted at ``discount_rate``. ``annual_turnover``
-    is the yearly probability of a sale, applied identically to both loans on a path. The down-only
-    borrower does not refinance. ``seed`` drives the behavioral draws.
+    is the yearly probability of a sale, applied identically to both loans on a path. ``seed`` drives the
+    behavioral draws.
+
+    By default the down-only borrower does not refinance. With ``down_only_refinance=True`` the down-only
+    borrower keeps the ordinary refinance right and follows the same ``standard.refinance`` rule, into a
+    standard fixed-rate loan at ``index + standard.rate_spread`` (so it can also go below a floor); after
+    that the path holds a fixed-rate loan, which may be refinanced again by the same rule. The down-only
+    borrower's draws use their own random stream, so the standard side is unchanged.
     """
     _require(balance > 0, "balance must be > 0")
     _require(term_years > 0, "term_years must be > 0")
@@ -629,6 +658,11 @@ def simulate(paths: MarketPaths, *, balance: float, term_years: int, horizon_yea
 
     d = _DownOnlyState(down_only, paths)
     d_bal, d_cost = np.full(n, float(balance)), np.zeros(n)
+    d_left = np.full(n, term)
+    switched = np.zeros(n, dtype=bool)  # refinanced out of the down-only loan into a fixed-rate loan
+    d_fixed = np.zeros(n)
+    d_run, d_refis = np.zeros(n, dtype=int), np.zeros(n, dtype=int)
+    rng_d = np.random.default_rng(None if seed is None else [seed, 1])
 
     pol = standard.refinance
     s_rate = paths.index[:, 0] + standard.rate_spread
@@ -643,15 +677,32 @@ def simulate(paths: MarketPaths, *, balance: float, term_years: int, horizon_yea
 
     for t in range(1, months + 1):
         # Down-only: daily checks through the month, interest at the rate in effect each day.
-        start_rate, avg_rate, _ = d.month(t - 1, active)
-        d_pmt = _payment(d_bal, start_rate, term - (t - 1))
+        start_rate, avg_rate, _ = d.month(t - 1, active & ~switched)
+        avail = paths.index[:, paths.month_start(t)] + standard.rate_spread
+        if down_only_refinance:
+            # Same monthly rule as the standard borrower, into a fixed-rate loan at the market rate.
+            current = np.where(switched, d_fixed, d.rate)
+            d_in = active & (current - avail >= pol.threshold) & (pol.monthly_probability > 0)
+            d_run = np.where(d_in, d_run + 1, 0)
+            d_ready = d_in & (d_run > pol.delay_months)
+            if d_ready.any():
+                go_d = d_ready & (rng_d.random(n) < pol.monthly_probability) & (rng_d.random(n) < pol.requalify_probability)
+                d_cost += np.where(go_d, disc[t] * (d_bal * pol.closing_costs + pol.fixed_costs), 0.0)
+                d_fixed = np.where(go_d, avail, d_fixed)
+                switched |= go_d
+                d_left = np.where(go_d, term, d_left)
+                d_refis += go_d
+                d_run = np.where(go_d, 0, d_run)
+        start_rate = np.where(switched, d_fixed, start_rate)
+        avg_rate = np.where(switched, d_fixed, avg_rate)
+        d_pmt = _payment(d_bal, start_rate, d_left)
         d_int = d_bal * avg_rate / 1200
         d_sched = np.minimum(d_pmt - d_int, d_bal)
         d_cost += np.where(active, disc[t] * (d_int + d_sched), 0.0)
         d_bal = np.where(active, d_bal - d_sched, d_bal)
+        d_left = np.where(active, d_left - 1, d_left)
 
         # Standard: monthly refinancing decision.
-        avail = paths.index[:, paths.month_start(t)] + standard.rate_spread
         in_money = active & (s_rate - avail >= pol.threshold) & (pol.monthly_probability > 0)
         run = np.where(in_money, run + 1, 0)
         ready = in_money & (run > pol.delay_months)
@@ -669,7 +720,7 @@ def simulate(paths: MarketPaths, *, balance: float, term_years: int, horizon_yea
         s_left = np.where(active, s_left - 1, s_left)
 
         if record_rates:
-            hist_d[:, t], hist_s[:, t] = d.rate, s_rate
+            hist_d[:, t], hist_s[:, t] = np.where(switched, d_fixed, d.rate), s_rate
 
         sale = active & (sold_at == t) & (t < months)
         ending = active & ((sold_at == t) | (t == months))
@@ -678,12 +729,13 @@ def simulate(paths: MarketPaths, *, balance: float, term_years: int, horizon_yea
         s_cost += np.where(ending, disc[t] * s_bal, 0.0)
         active &= ~ending
 
-    return SimulationResult(d_cost, s_cost, d.resets, refis, months, hist_d, hist_s)
+    return SimulationResult(d_cost, s_cost, d.resets, refis, months, hist_d, hist_s,
+                            refinances_down_only=d_refis if down_only_refinance else None)
 
 
 def fair_rate_spread(paths: MarketPaths, *, balance: float, term_years: int, horizon_years: float,
                      down_only: DownOnlyLoan, standard: StandardLoan, discount_rate: float, annual_turnover: float,
-                     seed: int, search: tuple[float, float], tol: float = 1e-4) -> float:
+                     seed: int, search: tuple[float, float], tol: float = 1e-4, down_only_refinance: bool = False) -> float:
     """Borrower-cost lens: the down-only spread at which its expected cost equals the standard loan's.
 
     Uses one fixed set of paths and behavioral draws (common random numbers). ``down_only.rate_spread`` is ignored.
@@ -692,7 +744,7 @@ def fair_rate_spread(paths: MarketPaths, *, balance: float, term_years: int, hor
     def gap(s: float) -> float:
         r = simulate(paths, balance=balance, term_years=term_years, horizon_years=horizon_years,
                      down_only=down_only.with_spread(s), standard=standard, discount_rate=discount_rate,
-                     annual_turnover=annual_turnover, seed=seed)
+                     annual_turnover=annual_turnover, seed=seed, down_only_refinance=down_only_refinance)
         return float(r.savings.mean())
 
     lo = max(search[0], down_only.min_spread(paths))
