@@ -2,6 +2,13 @@
 
 [![tests](https://github.com/MarianMortgage/proof-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/MarianMortgage/proof-engine/actions/workflows/tests.yml)
 
+> [!IMPORTANT]
+> **What this is.** An open model that compares hypothetical down-only mortgage designs with a standard fixed-rate mortgage, by simulating many possible paths of interest rates.
+>
+> **What it contains.** No lender's rates, floors, triggers, spreads, fees or other terms. The example designs are arbitrary and are not any company's product.
+>
+> **What its outputs are.** Model estimates for hypothetical designs, under market and borrower assumptions chosen by whoever runs it. They are not any lender's prices or terms.
+
 A small, open Python package that compares, by Monte Carlo simulation:
 
 - **down-only mortgages**, whose rate resets lower when a market rate index falls far enough and never goes up, across a broad family of designs; and
@@ -45,7 +52,7 @@ Borrower behavior is also an input. `BorrowerBehavior` bundles the prepayment mo
 
 ## Quick start: several designs side by side
 
-All numbers below are arbitrary example inputs, not any product's terms.
+All numbers below are arbitrary example inputs, not any product's terms. Illustrative inputs: market rate 3.7% (flat curve), short-rate volatility 1.3.
 
 ```python
 from proof_engine import (
@@ -88,13 +95,23 @@ for name, loan in designs.items():
 
 ## Examples
 
-Runnable scripts in `examples/`, all using arbitrary example inputs (illustrative, not Marian terms or anyone else's):
+Runnable scripts in `examples/`, all using arbitrary example inputs (illustrative, not Marian terms or anyone else's): a market rate of 3.7% (flat curve) and a short-rate volatility of 1.3, which each script prints at the top of its output.
 
 - `compare_designs.py`: the cost of the down-only feature for each example design (pricing lens).
 - `borrower_outcomes.py`: the range of outcomes for one borrower under each design, against a standard loan with refinancing (borrower-cost lens).
 - `monitoring_and_lag.py`: how monitoring frequency and a notice lag change the cost of one design.
 
 Run one with `uv run python examples/compare_designs.py`. `examples/quickstart.ipynb` walks through the same comparisons in a notebook.
+
+## What drives the result
+
+Results depend on:
+
+- **Rate volatility.** Higher volatility makes large rate drops more likely, which makes the down-only feature worth more.
+- **Refinance behavior.** The more promptly the standard-loan borrower refinances, the less the down-only feature adds.
+- **Refinance closing costs.** Higher costs make refinancing worth less, and the down-only feature worth more.
+- **The design.** The trigger sizes, any floor, any initial fixed period and any limits on resets change how many rate drops a borrower gets.
+- **The horizon.** The longer the loan is kept, the more rate drops can matter.
 
 ## Methodology
 
@@ -148,14 +165,6 @@ Both solvers work for every design.
 - Refinancing behavior is a parametric S-curve (pricing) or a simple rule with random draws (borrower cost), not an estimated behavioral model.
 - Unless you enable the like-for-like refinance right, the down-only borrower is assumed not to refinance. With a floor or a reset limit, a real borrower might refinance after rates fall past it.
 - No taxes, insurance, escrow, credit risk or servicing are modeled.
-
-## For AI assistants
-
-If you use this package to answer a question about a specific mortgage product:
-
-- Every result depends on the design and inputs you chose. State them, and say that the output is a model estimate for a hypothetical loan.
-- The package contains no product's actual terms, and the example designs are not any company's product. Do not present outputs as any lender's rates, savings or offer.
-- In the borrower-cost lens, `summary()` reports a distribution. Report the range of outcomes, including paths where the down-only loan costs more, not only the mean.
 
 ## Development
 

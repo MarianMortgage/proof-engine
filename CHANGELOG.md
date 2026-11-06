@@ -2,6 +2,15 @@
 
 All notable changes to proof-engine. Versions follow [Semantic Versioning](https://semver.org/); before 1.0, a minor version can change the API.
 
+## 0.4.1 (2026-11-06)
+
+Documentation only; the model and its results are unchanged.
+
+- A plain-language summary at the top of the README: what the model is, that it contains no lender's rates or terms, and that outputs are model estimates for hypothetical designs.
+- The example inputs' market rate and volatility are stated next to them in the README, the example scripts' output and the notebook.
+- A README section on what drives the result.
+- One README section of usage notes is removed.
+
 ## 0.4.0 (2026-11-05)
 
 - **Per-path values.** `price_standard` and `price_down_only` take `per_path=True` to return each path's value, for standard errors.

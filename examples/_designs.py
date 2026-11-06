@@ -6,9 +6,10 @@ lender's rate, floor, trigger, spread, fee or behavior assumption.
 
 from proof_engine import DownOnlyLoan, FixedFloor, FloorBelowStart, HullWhiteMarket, PrepaymentModel
 
-LABEL = "Illustrative, not Marian terms."
-
 MARKET = HullWhiteMarket(flat_rate=3.7, mean_reversion=0.11, volatility=1.3, index_tenor_years=10)
+
+LABEL = (f"Illustrative inputs, not Marian terms or any lender's: market rate {MARKET.flat_rate}% (flat curve), "
+         f"short-rate volatility {MARKET.volatility}.")
 
 DESIGNS = {
     "One tier, no floor": DownOnlyLoan(
